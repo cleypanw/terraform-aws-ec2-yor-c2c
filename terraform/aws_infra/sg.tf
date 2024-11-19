@@ -3,9 +3,9 @@
 
 resource "aws_security_group" "sg-ec2" {
 
-  description   = "SG for ec2-instance"
-  name          = local.sg_name
-  vpc_id        = aws_vpc.my_vpc.id
+  description = "SG for ec2-instance"
+  name        = local.sg_name
+  vpc_id      = aws_vpc.my_vpc.id
 
   ingress {
     description = "ssh access"
@@ -21,5 +21,9 @@ resource "aws_security_group" "sg-ec2" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = {
+    yor_name  = "sg-ec2"
+    yor_trace = "5c7101d3-de86-473a-a88f-5f17aac34c09"
   }
 }
