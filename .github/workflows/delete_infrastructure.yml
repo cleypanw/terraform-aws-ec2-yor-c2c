@@ -1,0 +1,89 @@
+name: Delete Infrastructure
+
+on:
+  # push:
+  #  branches:
+  #    - main
+  workflow_dispatch:
+    inputs:
+      AWS_REGION:
+        description: 'AWS region in which the infrastructure to delete is deployed'
+        required: true
+        default: 'eu-west-3'
+      NAME_PREFIX:
+        description: 'Prefix name for resources to be delete: s3 bucket, vpc, ec2, etc.'
+        required: true
+        default: 'yor'
+
+jobs:
+  delete:
+    name: Delete AWS infrastructure (VPC, EC2, S3, etc.)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # pin@v2
+
+      - name: Setup tool - install Terraform
+        uses: hashicorp/setup-terraform@633666f66e0061ca3b725c73b2ec20cd13a8fdd1 # pin@v2
+        with:
+          terraform_version: 1.5.2
+          terraform_wrapper: false
+
+      - name: Setup tool - install AWS cli
+        uses: unfor19/install-aws-cli-action@457b7980b125044247e455d87b9a26fc2299b787 # pin@v1
+
+      - name: Prerequisite - Github actor name control to convert to the expected format (underscore and uppercase removed and size limited to 10 chars)
+        id: github_name_control
+        run: |
+          ./github_actor_name_control.sh ${{ github.actor }} >> ACTOR
+          cat ACTOR
+          echo "ACTOR_PREFIX=$(cat ACTOR)" >> $GITHUB_ENV
+          echo ${{ env.ACTOR_PREFIX }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ./scripts
+        shell: bash
+
+      - name: Init - Terraform Init
+        id: init
+        run: terraform init -backend-config="bucket=${{ github.event.inputs.NAME_PREFIX }}-${{ env.ACTOR_PREFIX }}-s3-tfstate" -backend-config="key=${{ github.event.inputs.NAME_PREFIX }}-infra.tfstate" -backend-config="region=${{ github.event.inputs.AWS_REGION }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ github.event.inputs.AWS_REGION }}
+        working-directory: ./terraform/aws_infra
+        shell: bash
+
+      - name: Destroy - Terraform Destroy
+        id: destroy
+        run: terraform apply -destroy -var="region=${{ github.event.inputs.AWS_REGION }}" -var="name_prefix=${{ github.event.inputs.NAME_PREFIX }}-${{ env.ACTOR_PREFIX }}" -auto-approve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ github.event.inputs.AWS_REGION }}
+        working-directory: ./terraform/aws_infra
+        shell: bash
+
+      - name: Remove objects in S3 bucket
+        id: remove_objects_s3
+        run: |
+          aws s3 rm s3://${{ github.event.inputs.NAME_PREFIX }}-${{ env.ACTOR_PREFIX }}-s3-tfstate --recursive
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ github.event.inputs.AWS_REGION }}
+        shell: bash
+
+      - name: Delete S3 bucket
+        id: delete_s3
+        run: |
+          aws s3api delete-bucket --bucket ${{ github.event.inputs.NAME_PREFIX }}-${{ env.ACTOR_PREFIX }}-s3-tfstate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ github.event.inputs.AWS_REGION }}
+        shell: bash
